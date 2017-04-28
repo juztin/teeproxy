@@ -1,11 +1,16 @@
-FROM alpine:3.5
+# Need to first build a self contained binary for scratch:
+#
+#   ```bash
+#   % CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o teeproxy
+#   ```
+#
 
-COPY teeproxy.go /usr/local/src/
 
-RUN apk add --no-cache go musl-dev \
-    && cd /usr/local/src/ \
-    && CGO_ENABLED=0 go build teeproxy.go \
-    && mv teeproxy /usr/local/bin/ \
-    && apk del go musl-dev
+FROM scratch
 
-ENTRYPOINT ["/usr/local/bin/teeproxy"]
+COPY teeproxy /
+
+EXPOSE 8080
+
+ENTRYPOINT ["/teeproxy"]
+CMD ["--help"]
