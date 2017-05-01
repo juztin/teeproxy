@@ -48,41 +48,57 @@ func main() {
 	http.Serve(listener, http.HandlerFunc(handler))
 }
 
-func recovery() {
+func recovery(req *http.Request) {
 	if r := recover(); r != nil {
-		log.Println("Unsafe recovery: ", r)
+		if err := recover(); err != nil && err != http.ErrAbortHandler {
+			const size = 64 << 10
+			buf := make([]byte, size)
+			buf = buf[:runtime.Stack(buf, false)]
+			log.Printf("panic serving %s: %v\n%s\n", req.RemoteAddr, err, buf)
+		}
 	}
 }
 
-// handler duplicates the incoming request (req) and does the request to the Target and the Alternate target discarding the Alternate response
-func handler(w http.ResponseWriter, req *http.Request) {
-	defer recovery()
-	targetRequest, alternateRequest, err := proxiedRequests(req)
+func proxyHandler(host string, r *http.Request) (*http.Response, error) {
+	resp, err := request(host, r)
+	if err != nil && err != httputil.ErrPersistEOF {
+		log.Printf("Failed to receive from %s, %v\n", host, err)
+	}
+	return resp, nil
+}
 
-	// Alternate request
+// handler duplicates the incoming request across the target and alternate, discarding the alternates response.
+func handler(w http.ResponseWriter, r *http.Request) {
+	defer recovery(r)
+	targetRequest, alternateRequest, err := proxiedRequests(r)
+
+	// alternate request
 	go func() {
-		defer recovery()
-		resp, err := request(*alternateHost, alternateRequest)
-		if err != nil && err != httputil.ErrPersistEOF {
-			log.Printf("Failed to receive from %s, %v\n", *alternateHost, err)
-		}
-		resp.Body.Close()
+		defer recovery(r)
+		proxyHandler(*alternateHost, alternateRequest)
 	}()
 
-	// Target request
-	resp, err := request(*targetHost, targetRequest)
-	if err != nil && err != httputil.ErrPersistEOF {
-		log.Printf("Failed to receive from %s, %v\n", *targetHost, err)
+	// target request
+	resp, err := proxyHandler(*targetHost, targetRequest)
+	if err != nil {
+		log.Printf("Failed during request to target proxy: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-
 	for k, v := range resp.Header {
 		w.Header()[k] = v
 	}
 	w.WriteHeader(resp.StatusCode)
-	body, _ := ioutil.ReadAll(resp.Body)
-	w.Write(body)
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read response body from target proxy: %v", err)
+		return
+	}
 	resp.Body.Close()
+	_, err = w.Write(body)
+	if err != nil {
+		log.Printf("Failed to write response body from target proxy: %v", err)
+	}
 }
 
 //copyRequest copyies the given request using the given body, re-writing the host when rewriteHost is true.
