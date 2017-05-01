@@ -24,14 +24,6 @@ var (
 	alternateHostRewrite = flag.Bool("b.rewrite", false, "rewrite the host header when proxying alternate site traffic")
 )
 
-type noopCloser struct {
-	io.Reader
-}
-
-func (noopCloser) Close() error {
-	return nil
-}
-
 func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -124,17 +116,17 @@ func copyRequest(request *http.Request, body io.ReadCloser, rewriteHost bool, ho
 }
 
 //proxiedRequests creates the `target` and `alternate` requests from the given request.
-func proxiedRequests(request *http.Request) (*http.Request, *http.Request, error) {
+func proxiedRequests(r *http.Request) (*http.Request, *http.Request, error) {
 	// Duplicate the request body.
 	b1 := new(bytes.Buffer)
 	b2 := new(bytes.Buffer)
 	w := io.MultiWriter(b1, b2)
-	_, err := io.Copy(w, request.Body)
-	request.Body.Close()
+	_, err := io.Copy(w, r.Body)
+	r.Body.Close()
 
 	// Duplicate the request, using the duplicated body for each.
-	r1 := copyRequest(request, noopCloser{b1}, *targetHostRewrite, *targetHost)
-	r2 := copyRequest(request, noopCloser{b2}, *alternateHostRewrite, *alternateHost)
+	r1 := copyRequest(r, ioutil.NopCloser(b1), *targetHostRewrite, *targetHost)
+	r2 := copyRequest(r, ioutil.NopCloser(b2), *alternateHostRewrite, *alternateHost)
 
 	return r1, r2, err
 }
