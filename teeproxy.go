@@ -26,7 +26,6 @@ var (
 
 func main() {
 	flag.Parse()
-	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	var err error
 	var listener net.Listener
