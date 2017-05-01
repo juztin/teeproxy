@@ -35,6 +35,7 @@ func main() {
 	http.Serve(listener, http.HandlerFunc(handler))
 }
 
+//recovery is pretty much copied from golang:net/http/server.go
 func recovery(req *http.Request) {
 	if r := recover(); r != nil {
 		if err := recover(); err != nil && err != http.ErrAbortHandler {
@@ -46,7 +47,8 @@ func recovery(req *http.Request) {
 	}
 }
 
-func proxyHandler(host string, r *http.Request) (*http.Response, error) {
+//proxyRequest invokes the request on the host.
+func proxyRequest(host string, r *http.Request) (*http.Response, error) {
 	resp, err := request(host, r)
 	if err != nil && err != httputil.ErrPersistEOF {
 		log.Printf("Failed to receive from %s, %v\n", host, err)
@@ -62,11 +64,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	// alternate request
 	go func() {
 		defer recovery(r)
-		proxyHandler(*alternateHost, alternateRequest)
+		proxyRequest(*alternateHost, alternateRequest)
 	}()
 
 	// target request
-	resp, err := proxyHandler(*targetHost, targetRequest)
+	resp, err := proxyRequest(*targetHost, targetRequest)
 	if err != nil {
 		log.Printf("Failed during request to target proxy: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
