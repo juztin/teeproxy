@@ -1,0 +1,7 @@
+#!/bin/bash
+
+echo "=> Building teeproxy binary"
+docker run \
+	--env CGO_ENABLED=0
+	--volume $(pwd):/go \
+	golang:1.8 build -a -installsuffix cgo -o teeproxy .
