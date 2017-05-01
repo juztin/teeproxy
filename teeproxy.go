@@ -41,7 +41,7 @@ func main() {
 
 	listener, err = net.Listen("tcp", *listen)
 	if err != nil {
-		fmt.Printf("Failed to listen to %s: %s\n", *listen, err)
+		fmt.Printf("Failed to listen on %s, %s\n", *listen, err)
 		return
 	}
 	fmt.Printf("Listening on %s\n", *listen)
@@ -64,7 +64,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 		defer recovery()
 		resp, err := request(*alternateHost, alternateRequest)
 		if err != nil && err != httputil.ErrPersistEOF {
-			log.Printf("Failed to receive from %s: %v\n", *alternateHost, err)
+			log.Printf("Failed to receive from %s, %v\n", *alternateHost, err)
 		}
 		resp.Body.Close()
 	}()
@@ -72,7 +72,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	// Target request
 	resp, err := request(*targetHost, targetRequest)
 	if err != nil && err != httputil.ErrPersistEOF {
-		log.Printf("Failed to receive from %s: %v\n", *targetHost, err)
+		log.Printf("Failed to receive from %s, %v\n", *targetHost, err)
 		return
 	}
 
