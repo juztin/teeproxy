@@ -57,7 +57,7 @@ func recovery() {
 // handler duplicates the incoming request (req) and does the request to the Target and the Alternate target discarding the Alternate response
 func handler(w http.ResponseWriter, req *http.Request) {
 	defer recovery()
-	targetRequest, alternateRequest, err := duplicateRequest(req)
+	targetRequest, alternateRequest, err := proxiedRequests(req)
 
 	// Alternate request
 	go func() {
@@ -85,6 +85,7 @@ func handler(w http.ResponseWriter, req *http.Request) {
 	resp.Body.Close()
 }
 
+//copyRequest copyies the given request using the given body, re-writing the host when rewriteHost is true.
 func copyRequest(request *http.Request, body io.ReadCloser, rewriteHost bool, host string) *http.Request {
 	r := http.Request{
 		Method:        request.Method,
@@ -106,7 +107,8 @@ func copyRequest(request *http.Request, body io.ReadCloser, rewriteHost bool, ho
 	return &r
 }
 
-func duplicateRequest(request *http.Request) (*http.Request, *http.Request, error) {
+//proxiedRequests creates the `target` and `alternate` requests from the given request.
+func proxiedRequests(request *http.Request) (*http.Request, *http.Request, error) {
 	// Duplicate the request body.
 	b1 := new(bytes.Buffer)
 	b2 := new(bytes.Buffer)
