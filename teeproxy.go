@@ -26,11 +26,7 @@ var (
 
 func main() {
 	flag.Parse()
-
-	var err error
-	var listener net.Listener
-
-	listener, err = net.Listen("tcp", *listen)
+	listener, err := net.Listen("tcp", *listen)
 	if err != nil {
 		fmt.Printf("Failed to listen on %s, %s\n", *listen, err)
 		return
