@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -22,20 +23,36 @@ var (
 	alternateTimeout     = flag.Int("b.timeout", 3, "timeout in seconds for alternate site traffic")
 	targetHostRewrite    = flag.Bool("a.rewrite", false, "rewrite the host header when proxying target traffic")
 	alternateHostRewrite = flag.Bool("b.rewrite", false, "rewrite the host header when proxying alternate site traffic")
+	tlsKey               = flag.String("key.file", "", "path to the TLS private key file")
+	tlsCertificate       = flag.String("cert.file", "", "path to the TLS certificate file")
 )
 
 func main() {
 	flag.Parse()
-	listener, err := net.Listen("tcp", *listen)
+	l, err := listener()
 	if err != nil {
 		fmt.Printf("Failed to listen on %s, %s\n", *listen, err)
 		return
 	}
 	fmt.Printf("Listening on %s\n", *listen)
-	http.Serve(listener, http.HandlerFunc(handler))
+	http.Serve(l, http.HandlerFunc(handler))
 }
 
-//recovery is pretty much copied from golang:net/http/server.go
+// listener returns either an HTTP or HTTPS listener.
+func listener() (net.Listener, error) {
+	if *tlsKey == "" {
+		return net.Listen("tcp", *listen)
+	}
+
+	cert, err := tls.LoadX509KeyPair(*tlsCertificate, *tlsKey)
+	if err != nil {
+		return nil, err
+	}
+	config := &tls.Config{Certificates: []tls.Certificate{cert}}
+	return tls.Listen("tcp", *listen, config)
+}
+
+// recovery is pretty much copied from golang:net/http/server.go
 func recovery(req *http.Request) {
 	if r := recover(); r != nil {
 		if err := recover(); err != nil && err != http.ErrAbortHandler {
@@ -47,15 +64,6 @@ func recovery(req *http.Request) {
 	}
 }
 
-//proxyRequest invokes the request on the host.
-func proxyRequest(host string, r *http.Request) (*http.Response, error) {
-	resp, err := request(host, r)
-	if err != nil && err != httputil.ErrPersistEOF {
-		log.Printf("Failed to receive from %s, %v\n", host, err)
-	}
-	return resp, nil
-}
-
 // handler duplicates the incoming request across the target and alternate, discarding the alternates response.
 func handler(w http.ResponseWriter, r *http.Request) {
 	defer recovery(r)
@@ -64,13 +72,16 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	// alternate request
 	go func() {
 		defer recovery(r)
-		proxyRequest(*alternateHost, alternateRequest)
+		_, err := request(*alternateHost, alternateRequest)
+		if err != nil {
+			log.Printf("Failed to receive from alternate %s, %v\n", *alternateHost, err)
+		}
 	}()
 
 	// target request
-	resp, err := proxyRequest(*targetHost, targetRequest)
+	resp, err := request(*targetHost, targetRequest)
 	if err != nil {
-		log.Printf("Failed during request to target proxy: %v", err)
+		log.Printf("Failed to receive from target %s, %v\n", *targetHost, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -90,7 +101,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//copyRequest copyies the given request using the given body, re-writing the host when rewriteHost is true.
+// copyRequest copyies the given request using the given body, re-writing the host when rewriteHost is true.
 func copyRequest(request *http.Request, body io.ReadCloser, rewriteHost bool, host string) *http.Request {
 	r := http.Request{
 		Method:        request.Method,
@@ -112,7 +123,7 @@ func copyRequest(request *http.Request, body io.ReadCloser, rewriteHost bool, ho
 	return &r
 }
 
-//proxiedRequests creates the `target` and `alternate` requests from the given request.
+// proxiedRequests creates the `target` and `alternate` requests from the given request.
 func proxiedRequests(r *http.Request) (*http.Request, *http.Request, error) {
 	// Duplicate the request body.
 	b1 := new(bytes.Buffer)
@@ -142,5 +153,8 @@ func request(host string, r *http.Request) (*http.Response, error) {
 		resp, err = conn.Read(r)
 	}
 	conn.Close()
+	if err == httputil.ErrPersistEOF {
+		err = nil
+	}
 	return resp, err
 }
