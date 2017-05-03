@@ -16,15 +16,21 @@ import (
 )
 
 var (
-	listen               = flag.String("l", ":8080", "port to accept requests")
-	targetHost           = flag.String("a", "localhost:8080", "where target traffic goes. http://localhost:8080/")
-	alternateHost        = flag.String("b", "localhost:8081", "where alternate traffic goes, response is ignored. http://localhost:8081/")
-	targetTimeout        = flag.Int("a.timeout", 3, "timeout in seconds for target traffic")
-	alternateTimeout     = flag.Int("b.timeout", 3, "timeout in seconds for alternate site traffic")
-	targetHostRewrite    = flag.Bool("a.rewrite", false, "rewrite the host header when proxying target traffic")
-	alternateHostRewrite = flag.Bool("b.rewrite", false, "rewrite the host header when proxying alternate site traffic")
-	tlsKey               = flag.String("key.file", "", "path to the TLS private key file")
-	tlsCertificate       = flag.String("cert.file", "", "path to the TLS certificate file")
+	listen         = flag.String("l", ":8080", "port to accept requests")
+	tlsKey         = flag.String("key.file", "", "path to the TLS private key file")
+	tlsCertificate = flag.String("cert.file", "", "path to the TLS certificate file")
+
+	targetHost          = flag.String("a", "localhost:8080", "where target traffic goes. http://localhost:8080/")
+	targetHostRewrite   = flag.Bool("a.rewrite", false, "rewrite the host header when proxying target traffic")
+	targetTimeout       = flag.Int("a.timeout", 3, "timeout in seconds for target traffic")
+	isTargetTLS         = flag.Bool("a.tls", false, "proxies to target over TLS")
+	isTargetTLSInsecure = flag.Bool("a.tls.insecure", false, "ignores certificate checking on target")
+
+	alternateHost          = flag.String("b", "localhost:8081", "where alternate traffic goes, response is ignored. http://localhost:8081/")
+	alternateHostRewrite   = flag.Bool("b.rewrite", false, "rewrite the host header when proxying alternate site traffic")
+	alternateTimeout       = flag.Int("b.timeout", 3, "timeout in seconds for alternate site traffic")
+	isAlternateTLS         = flag.Bool("b.tls", false, "proxies to alternate over TLS")
+	isAlternateTLSInsecure = flag.Bool("b.tls.insecure", false, "ignores certificate checking on alternate")
 )
 
 func main() {
@@ -34,7 +40,7 @@ func main() {
 		fmt.Printf("Failed to listen on %s, %s\n", *listen, err)
 		return
 	}
-	fmt.Printf("Listening on %s\n", *listen)
+	fmt.Printf("Listening on %s and proxying to %s / %s\n", *listen, *targetHost, *alternateHost)
 	http.Serve(l, http.HandlerFunc(handler))
 }
 
@@ -72,14 +78,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	// alternate request
 	go func() {
 		defer recovery(r)
-		_, err := request(*alternateHost, alternateRequest)
+		_, err := request(*alternateHost, *isAlternateTLS, *isAlternateTLSInsecure, alternateRequest)
 		if err != nil {
 			log.Printf("Failed to receive from alternate %s, %v\n", *alternateHost, err)
 		}
 	}()
 
 	// target request
-	resp, err := request(*targetHost, targetRequest)
+	resp, err := request(*targetHost, *isTargetTLS, *isTargetTLSInsecure, targetRequest)
 	if err != nil {
 		log.Printf("Failed to receive from target %s, %v\n", *targetHost, err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -140,10 +146,19 @@ func proxiedRequests(r *http.Request) (*http.Request, *http.Request, error) {
 }
 
 // request invokes the request upon the host.
-func request(host string, r *http.Request) (*http.Response, error) {
+func request(host string, useTLS bool, insecureSkip bool, r *http.Request) (*http.Response, error) {
 	tcpConn, err := net.DialTimeout("tcp", host, time.Duration(time.Duration(*alternateTimeout)*time.Second))
 	if err != nil {
 		return nil, err
+	}
+
+	if useTLS {
+		//var config tls.Config
+		config := &tls.Config{
+			InsecureSkipVerify: true,
+		}
+		tcpConn = tls.Client(tcpConn, config)
+		err = tcpConn.(*tls.Conn).Handshake()
 	}
 
 	var resp *http.Response

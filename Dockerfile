@@ -16,11 +16,11 @@
 
 
 # Current build stage
-FROM scratch
+FROM alpine
 
-COPY teeproxy /
+COPY teeproxy /usr/local/bin/
 
 EXPOSE 8080
 
-ENTRYPOINT ["/teeproxy"]
+ENTRYPOINT ["/usr/local/bin/teeproxy"]
 CMD ["--help"]
