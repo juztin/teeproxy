@@ -147,13 +147,14 @@ func proxiedRequests(r *http.Request) (*http.Request, *http.Request, error) {
 
 // request invokes the request upon the host.
 func request(host string, useTLS bool, insecureSkip bool, r *http.Request) (*http.Response, error) {
+	// Create the TCP connection.
 	tcpConn, err := net.DialTimeout("tcp", host, time.Duration(time.Duration(*alternateTimeout)*time.Second))
 	if err != nil {
 		return nil, err
 	}
 
+	// Wrap it with TLS.
 	if useTLS {
-		//var config tls.Config
 		config := &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -161,6 +162,7 @@ func request(host string, useTLS bool, insecureSkip bool, r *http.Request) (*htt
 		err = tcpConn.(*tls.Conn).Handshake()
 	}
 
+	// Bundle it with HTTP.
 	var resp *http.Response
 	conn := httputil.NewClientConn(tcpConn, nil)
 	err = conn.Write(r)
